@@ -23,7 +23,7 @@ Vite 開發伺服器會使用 Firebase API：`https://opinionpollapi-l4atah6fzq-
 
 ## GitHub Pages
 
-專案主要分支為 `main`。GitHub Actions 會在推送至 `main` 後建置 `dist/` 並部署至 GitHub Pages。Vite 的 base path 目前設定為 `/opinion-poll-site/`，因此 GitHub Repository 預期名稱為 `opinion-poll-site`。
+原始碼位於 `main` 分支；公開網站目前由 `gh-pages` 分支根目錄提供，網址為 `https://clive520.github.io/opinion-poll-site/`。Vite 的 base path 設定為 `/opinion-poll-site/`。
 
 ## 資料與管理連結
 
