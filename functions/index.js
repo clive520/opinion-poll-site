@@ -251,17 +251,27 @@ async function updateSurvey(body, token) {
 }
 
 async function listArchivedSurveys(body) {
-  let query = db.collection(archiveCollection).orderBy('closedAt', 'desc')
+  let query = db.collection(surveyCollection).orderBy('createdAt', 'desc')
   if (body.cursor) {
-    if (typeof body.cursor !== 'string' || !/^[a-zA-Z0-9_-]{1,100}$/.test(body.cursor)) fail(400, '往期調查分頁位置不正確。')
-    const cursorSnapshot = await db.collection(archiveCollection).doc(body.cursor).get()
-    if (!cursorSnapshot.exists) fail(400, '找不到往期調查分頁位置。')
+    if (typeof body.cursor !== 'string' || !/^[a-zA-Z0-9_-]{1,100}$/.test(body.cursor)) fail(400, '調查列表分頁位置不正確。')
+    const cursorSnapshot = await db.collection(surveyCollection).doc(body.cursor).get()
+    if (!cursorSnapshot.exists) fail(400, '找不到調查列表分頁位置。')
     query = query.startAfter(cursorSnapshot)
   }
   const snapshot = await query.limit(50).get()
   const surveys = snapshot.docs.map((doc) => {
-    const { questions, ...summary } = doc.data()
-    return { ...summary, questionCount: Array.isArray(questions) ? questions.length : 0 }
+    const survey = doc.data()
+    return {
+      surveyId: survey.id ?? doc.id,
+      title: survey.title,
+      description: survey.description,
+      status: survey.status,
+      resultsPublic: survey.resultsPublic === true,
+      responseCount: survey.responseCount ?? 0,
+      createdAt: survey.createdAt,
+      closedAt: survey.closedAt,
+      questionCount: Array.isArray(survey.questions) ? survey.questions.length : 0,
+    }
   })
   return { surveys, archiveCursor: snapshot.docs.at(-1)?.id ?? body.cursor ?? null, hasMore: snapshot.size === 50 }
 }
