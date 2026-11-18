@@ -90,7 +90,7 @@ function Header({ onHome }: { onHome: () => void }) {
   return <header className="topbar"><button className="brand" onClick={onHome} aria-label="回首頁">
     <span className="brand-mark"><Radio size={21} strokeWidth={2.4} /></span>
     <span>聚點<span className="brand-dot">.</span></span>
-  </button><nav className="header-actions"><button className="header-archive" onClick={() => routeTo('/archive')}><Archive size={15} />往期調查<ArrowRight size={13} /></button><div className="header-note"><span className="live-dot" />匿名參與 · 即時統計</div></nav></header>
+  </button><nav className="header-actions"><button className="header-archive" onClick={() => routeTo('/archive')}><Archive size={15} />調查列表<ArrowRight size={13} /></button><div className="header-note"><span className="live-dot" />匿名參與 · 即時統計</div></nav></header>
 }
 
 function Footer() {
