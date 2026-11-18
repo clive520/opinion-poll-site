@@ -70,6 +70,32 @@ function publicUrl(id: string) {
   return `${window.location.origin}${basePath}#/poll/${id}`
 }
 
+function resultsUrl(id: string) {
+  return `${window.location.origin}${basePath}#/results/${id}`
+}
+
+function ResultsShareCard({ id }: { id: string }) {
+  const [qr, setQr] = useState('')
+  const [copied, setCopied] = useState(false)
+  const link = useMemo(() => resultsUrl(id), [id])
+  useEffect(() => {
+    QRCode.toDataURL(link, { width: 240, margin: 1, color: { dark: '#14213d', light: '#ffffff' }, errorCorrectionLevel: 'H' }).then(setQr).catch(() => setQr(''))
+  }, [link])
+  async function copyResultsLink() {
+    await navigator.clipboard.writeText(link)
+    setCopied(true)
+    window.setTimeout(() => setCopied(false), 1800)
+  }
+  function downloadResultsQr() {
+    if (!qr) return
+    const anchor = document.createElement('a')
+    anchor.href = qr
+    anchor.download = 'survey-results-qr-code.png'
+    anchor.click()
+  }
+  return <section className="panel results-share-card"><div className="results-share-content"><div><span className="section-kicker"><QrCode size={13} /> SHARE RESULTS</span><h2>分享統計結果</h2><p>掃描 QR code 或複製網址，即可直接開啟這份統計頁面。</p><button className="share-url results-share-url" onClick={copyResultsLink} title={link}><span><Link2 size={15} />{link}</span>{copied ? <Check size={16} /> : <Copy size={15} />}</button><div className="results-share-actions"><button className="secondary-button" onClick={downloadResultsQr} disabled={!qr}><Download size={15} />下載統計頁 QR Code</button><a className="text-button" href={link} target="_blank" rel="noreferrer">開啟統計頁<ExternalLink size={14} /></a></div></div><div className="qr-frame results-qr-frame">{qr ? <img src={qr} alt="統計結果頁 QR Code" /> : <div className="spinner" />}</div></div></section>
+}
+
 async function api<T>(action: string, payload?: unknown, token?: string, method: 'GET' | 'POST' = 'POST'): Promise<T> {
   if (!API_URL) throw new Error('網站尚未設定 Firebase Functions 網址，請稍後再試。')
   const url = new URL(API_URL)
@@ -289,7 +315,7 @@ function PublicResultsPage({ id }: { id: string }) {
   useEffect(() => { api<{ survey: Survey; stats: Record<string, Statistic> }>('publicResults', { id }, undefined, 'GET').then(setData).catch((e) => setError(e.message)) }, [id])
   if (error) return <main className="main-wrap centered-state"><div className="state-icon"><BarChart3 /></div><h1>目前無法查看結果</h1><p>{error}</p><button className="ghost-button" onClick={() => routeTo('')}>回首頁</button></main>
   if (!data) return <main className="main-wrap centered-state"><div className="spinner" /><p>正在整理調查結果…</p></main>
-  return <main className={`main-wrap manage-page public-results-page reading-size-${readingSize}`}><div className="results-page-tools"><div className="eyebrow"><BarChart3 size={14} /> PUBLIC RESULTS</div><ReadingSizeControl size={readingSize} onChange={setReadingSize} /></div><div className="results-heading public-results-heading"><div><h1>{data.survey.title}</h1><p>目前共收到 {data.survey.responseCount ?? 0} 份回答</p></div><span className="result-count"><Users size={14} />公開統計</span></div><div className="result-list">{data.survey.questions.map((question, index) => {
+  return <main className={`main-wrap manage-page public-results-page reading-size-${readingSize}`}><div className="results-page-tools"><div className="eyebrow"><BarChart3 size={14} /> PUBLIC RESULTS</div><ReadingSizeControl size={readingSize} onChange={setReadingSize} /></div><div className="results-heading public-results-heading"><div><h1>{data.survey.title}</h1><p>目前共收到 {data.survey.responseCount ?? 0} 份回答</p></div><span className="result-count"><Users size={14} />公開統計</span></div><ResultsShareCard id={id} /><div className="result-list">{data.survey.questions.map((question, index) => {
     const stat = data.stats[question.id] ?? {}
     return <article className="panel result-card" key={question.id}><div className="result-card-head"><div className="question-number">{String(index + 1).padStart(2, '0')}</div><div><h3>{question.title}</h3><span>{question.type === 'single' ? '單選題' : question.type === 'multiple' ? '複選題' : '文字回答'}</span></div></div>{question.type === 'text' ? <p className="public-text-result">文字回答僅供調查建立者查看。</p> : <ChoiceResults question={question} statistic={stat} responseCount={data.survey.responseCount ?? 0} />}</article>
   })}</div></main>
@@ -390,7 +416,7 @@ function ManagePage({ id, token }: { id: string; token: string }) {
       <aside className="panel response-total"><span className="total-icon"><Users size={19} /></span><span className="total-label">累積回答</span><strong>{survey.responseCount ?? 0}</strong><span className="total-footnote">不限制提交次數</span><div className="total-decoration"><span /><span /><span /><span /><span /></div></aside>
     </section>
     {notice && <div className="inline-notice"><CheckCircle2 size={16} />{notice}</div>}
-    <section className="results-section"><div className="results-heading"><div><span className="section-kicker">RESPONSE INSIGHTS</span><h2>回答結果</h2></div><div className="results-page-tools"><ReadingSizeControl size={readingSize} onChange={setReadingSize} /><span className="result-count"><Users size={14} />{survey.responseCount ?? 0} 份回答</span></div></div>
+    <section className="results-section"><div className="results-heading"><div><span className="section-kicker">RESPONSE INSIGHTS</span><h2>回答結果</h2></div><div className="results-page-tools"><ReadingSizeControl size={readingSize} onChange={setReadingSize} /><span className="result-count"><Users size={14} />{survey.responseCount ?? 0} 份回答</span></div></div>{(survey.resultsPublic || survey.status === 'closed') && <ResultsShareCard id={id} />}
       {!survey.responseCount ? <div className="panel empty-results"><span className="empty-icon"><MessageCircle size={23} /></span><h3>等待第一份回答</h3><p>把上方連結或 QR code 分享出去，回答進來後會顯示在這裡。</p></div> : <div className="result-list">{survey.questions.map((q, index) => {
         const stat = stats[q.id] ?? {}; const count = q.type === 'text' ? stat.textCount ?? 0 : Object.values(stat.counts ?? {}).reduce((sum, n) => sum + n, 0)
         const searchTerm = responseSearch.trim().toLocaleLowerCase()
