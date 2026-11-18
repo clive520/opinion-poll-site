@@ -3,7 +3,7 @@ import QRCode from 'qrcode'
 import {
   ArrowRight, BarChart3, Check, CheckCircle2, ChevronDown, CircleHelp,
   Clock3, Copy, Download, ExternalLink, FileText, Link2, ListChecks,
-  LockKeyhole, MessageCircle, Plus, QrCode, Radio, Send, Settings2, ShieldCheck,
+  LockKeyhole, MessageCircle, Plus, QrCode, Radio, Search, Send, Settings2, ShieldCheck,
   Sparkles, Trash2, Type, Users, X,
 } from 'lucide-react'
 import './App.css'
@@ -16,9 +16,10 @@ type Survey = {
   questions: Question[]; resultsPublic: boolean; opensAt?: string; closesAt?: string;
   responseCount?: number; createdAt?: string;
 }
-type Response = { nickname?: string; answers: Record<string, string | string[]>; submittedAt: string }
+type Response = { id: string; nickname?: string; answers: Record<string, string | string[]>; submittedAt: string }
 type Statistic = { counts?: Record<string, number>; textCount?: number }
 type Route = { page: 'home' | 'poll' | 'manage' | 'done' | 'results'; id?: string; token?: string }
+type ChartMode = 'bar' | 'pie' | 'table'
 
 const API_URL = (import.meta.env.VITE_API_URL as string | undefined) ?? 'https://opinionpollapi-l4atah6fzq-de.a.run.app'
 const basePath = import.meta.env.BASE_URL
@@ -239,14 +240,55 @@ function PublicResultsPage({ id }: { id: string }) {
   if (!data) return <main className="main-wrap centered-state"><div className="spinner" /><p>正在整理調查結果…</p></main>
   return <main className="main-wrap manage-page public-results-page"><div className="eyebrow"><BarChart3 size={14} /> PUBLIC RESULTS</div><div className="results-heading public-results-heading"><div><h1>{data.survey.title}</h1><p>目前共收到 {data.survey.responseCount ?? 0} 份回答</p></div><span className="result-count"><Users size={14} />公開統計</span></div><div className="result-list">{data.survey.questions.map((question, index) => {
     const stat = data.stats[question.id] ?? {}
-    return <article className="panel result-card" key={question.id}><div className="result-card-head"><div className="question-number">{String(index + 1).padStart(2, '0')}</div><div><h3>{question.title}</h3><span>{question.type === 'single' ? '單選題' : question.type === 'multiple' ? '複選題' : '文字回答'}</span></div></div>{question.type === 'text' ? <p className="public-text-result">文字回答僅供調查建立者查看。</p> : <div className="bar-list">{question.options.map((option) => { const value = stat.counts?.[option.id] ?? 0; const percent = (data.survey.responseCount ?? 0) ? Math.round(value / (data.survey.responseCount ?? 1) * 100) : 0; return <div className="bar-row" key={option.id}><div className="bar-label"><span>{option.text}</span><strong>{value}<small> 票 · {percent}%</small></strong></div><div className="bar-track"><span style={{ width: `${percent}%` }} /></div></div> })}</div>}</article>
+    return <article className="panel result-card" key={question.id}><div className="result-card-head"><div className="question-number">{String(index + 1).padStart(2, '0')}</div><div><h3>{question.title}</h3><span>{question.type === 'single' ? '單選題' : question.type === 'multiple' ? '複選題' : '文字回答'}</span></div></div>{question.type === 'text' ? <p className="public-text-result">文字回答僅供調查建立者查看。</p> : <ChoiceResults question={question} statistic={stat} responseCount={data.survey.responseCount ?? 0} />}</article>
   })}</div></main>
+}
+
+const chartColors = ['#7464dc', '#f0a56e', '#56b48a', '#559bd0', '#dc7185', '#a48ad9', '#d5bf54', '#4ab5ad', '#d78652', '#7889cd']
+
+function ChoiceResults({ question, statistic, responseCount }: { question: Question; statistic: Statistic; responseCount: number }) {
+  const [mode, setMode] = useState<ChartMode>('bar')
+  const options = question.options.map((option, index) => ({ ...option, count: statistic.counts?.[option.id] ?? 0, color: chartColors[index % chartColors.length] }))
+  const selectedTotal = options.reduce((sum, option) => sum + option.count, 0)
+  const unanswered = question.type === 'single' ? Math.max(0, responseCount - selectedTotal) : 0
+  const pieParts = [...options.map((option) => ({ label: option.text, count: option.count, color: option.color })), ...(unanswered > 0 ? [{ label: '未回答', count: unanswered, color: '#dfe2eb' }] : [])]
+  const pieStops: string[] = []
+  let position = 0
+  for (const part of pieParts) {
+    const start = position
+    position += responseCount > 0 ? (part.count / responseCount) * 100 : 0
+    if (part.count > 0) pieStops.push(`${part.color} ${start}% ${position}%`)
+  }
+
+  return <div className="choice-results">
+    <div className="chart-toolbar" role="group" aria-label="選擇統計圖表">
+      <span>圖表</span>
+      <div className="chart-mode-buttons">
+        <button className={mode === 'bar' ? 'active' : ''} aria-pressed={mode === 'bar'} onClick={() => setMode('bar')}><BarChart3 size={14} />長條圖</button>
+        {question.type === 'single' && <button className={mode === 'pie' ? 'active' : ''} aria-pressed={mode === 'pie'} onClick={() => setMode('pie')}><PieChartIcon />圓餅圖</button>}
+        <button className={mode === 'table' ? 'active' : ''} aria-pressed={mode === 'table'} onClick={() => setMode('table')}><ListChecks size={14} />統計表</button>
+      </div>
+    </div>
+    {mode === 'pie' && question.type === 'single' ? <div className="pie-view">
+      <div className="pie-chart" role="img" aria-label={`圓餅圖，共 ${responseCount} 份回答`} style={{ background: responseCount ? `conic-gradient(${pieStops.join(', ')})` : '#e9eaf1' }}><div className="pie-center"><strong>{responseCount}</strong><span>份回答</span></div></div>
+      <div className="pie-legend">{pieParts.filter((part) => part.count > 0).map((part) => <div className="pie-legend-row" key={part.label}><i style={{ background: part.color }} /><span>{part.label}</span><strong>{part.count}<small> 票 · {responseCount ? Math.round(part.count / responseCount * 100) : 0}%</small></strong></div>)}</div>
+    </div> : mode === 'table' ? <div className="result-table-wrap"><table className="result-table"><thead><tr><th>選項</th><th>票數</th><th>回答占比</th></tr></thead><tbody>{options.map((option) => <tr key={option.id}><td><span className="table-option"><i style={{ background: option.color }} />{option.text}</span></td><td>{option.count}</td><td>{responseCount ? Math.round(option.count / responseCount * 100) : 0}%</td></tr>)}{unanswered > 0 && <tr className="unanswered-row"><td>未回答</td><td>{unanswered}</td><td>{Math.round(unanswered / Math.max(responseCount, 1) * 100)}%</td></tr>}</tbody></table></div> : <div className="bar-list">{options.map((option) => { const percent = responseCount ? Math.round(option.count / responseCount * 100) : 0; return <div className="bar-row" key={option.id}><div className="bar-label"><span>{option.text}</span><strong>{option.count}<small> 票 · {percent}%</small></strong></div><div className="bar-track"><span style={{ width: `${percent}%`, background: `linear-gradient(90deg, ${option.color}, ${option.color}99)` }} /></div></div> })}{unanswered > 0 && <p className="chart-footnote">未回答 {unanswered} 份 · 比例以全部提交計算</p>}{question.type === 'multiple' && <p className="chart-footnote">複選題每份回答可選多項，因此各選項比例合計可能超過 100%。</p>}</div>}
+  </div>
+}
+
+function PieChartIcon() {
+  return <span className="pie-icon" aria-hidden="true" />
 }
 
 function ManagePage({ id, token }: { id: string; token: string }) {
   const [survey, setSurvey] = useState<Survey | null>(null)
   const [stats, setStats] = useState<Record<string, Statistic>>({})
   const [responses, setResponses] = useState<Response[]>([])
+  const [responseCursor, setResponseCursor] = useState<string | null>(null)
+  const [hasMoreResponses, setHasMoreResponses] = useState(false)
+  const [loadingMoreResponses, setLoadingMoreResponses] = useState(false)
+  const [responseSearch, setResponseSearch] = useState('')
+  const [responseOrder, setResponseOrder] = useState<'newest' | 'oldest'>('newest')
   const [qr, setQr] = useState('')
   const [error, setError] = useState('')
   const [copied, setCopied] = useState(false)
@@ -259,8 +301,8 @@ function ManagePage({ id, token }: { id: string; token: string }) {
   const link = useMemo(() => publicUrl(id), [id])
   useEffect(() => {
     if (!token) { setError('管理連結缺少存取權杖，請使用建立調查時保存的管理連結。'); return }
-    Promise.all([api<{ survey: Survey; stats: Record<string, Statistic>; responses: Response[] }>('manageSurvey', { id }, token, 'GET'), QRCode.toDataURL(link, { width: 280, margin: 1, color: { dark: '#14213d', light: '#ffffff' }, errorCorrectionLevel: 'H' })])
-      .then(([data, qrImage]) => { setSurvey(data.survey); setEditTitle(data.survey.title); setEditDescription(data.survey.description); setStats(data.stats); setResponses(data.responses); setQr(qrImage) }).catch((e) => setError(e.message))
+    Promise.all([api<{ survey: Survey; stats: Record<string, Statistic>; responses: Response[]; responseCursor: string | null; hasMoreResponses: boolean }>('manageSurvey', { id }, token, 'GET'), QRCode.toDataURL(link, { width: 280, margin: 1, color: { dark: '#14213d', light: '#ffffff' }, errorCorrectionLevel: 'H' })])
+      .then(([data, qrImage]) => { setSurvey(data.survey); setEditTitle(data.survey.title); setEditDescription(data.survey.description); setStats(data.stats); setResponses(data.responses); setResponseCursor(data.responseCursor); setHasMoreResponses(data.hasMoreResponses); setQr(qrImage) }).catch((e) => setError(e.message))
   }, [id, token, link])
   async function copyLink() { await navigator.clipboard.writeText(link); setCopied(true); window.setTimeout(() => setCopied(false), 1800) }
   async function copyAdminLink() { await navigator.clipboard.writeText(window.location.href); setAdminCopied(true); window.setTimeout(() => setAdminCopied(false), 1800) }
@@ -276,6 +318,17 @@ function ManagePage({ id, token }: { id: string; token: string }) {
     try { const result = await api<{ survey: Survey }>('updateSurvey', { id, changes: { title: editTitle.trim(), description: editDescription.trim() } }, token); setSurvey((previous) => previous ? { ...previous, ...result.survey } : result.survey); setEditing(false); setNotice('調查內容已更新。') }
     catch (e) { setNotice(e instanceof Error ? e.message : '更新失敗。') } finally { setSaving(false) }
   }
+  async function loadMoreResponses() {
+    if (!responseCursor || loadingMoreResponses) return
+    setLoadingMoreResponses(true)
+    try {
+      const page = await api<{ responses: Response[]; responseCursor: string | null; hasMoreResponses: boolean }>('moreResponses', { id, cursor: responseCursor }, token, 'GET')
+      setResponses((current) => [...current, ...page.responses])
+      setResponseCursor(page.responseCursor)
+      setHasMoreResponses(page.hasMoreResponses)
+    } catch (e) { setNotice(e instanceof Error ? e.message : '載入回答失敗。') }
+    finally { setLoadingMoreResponses(false) }
+  }
   if (error && !survey) return <main className="main-wrap centered-state"><div className="state-icon error-state"><LockKeyhole /></div><h1>無法開啟管理頁</h1><p>{error}</p><button className="ghost-button" onClick={() => routeTo('')}>回首頁</button></main>
   if (!survey) return <main className="main-wrap centered-state"><div className="spinner" /><p>正在載入管理資料…</p></main>
   return <main className="main-wrap manage-page">
@@ -288,8 +341,14 @@ function ManagePage({ id, token }: { id: string; token: string }) {
     <section className="results-section"><div className="results-heading"><div><span className="section-kicker">RESPONSE INSIGHTS</span><h2>回答結果</h2></div><span className="result-count"><Users size={14} />{survey.responseCount ?? 0} 份回答</span></div>
       {!survey.responseCount ? <div className="panel empty-results"><span className="empty-icon"><MessageCircle size={23} /></span><h3>等待第一份回答</h3><p>把上方連結或 QR code 分享出去，回答進來後會顯示在這裡。</p></div> : <div className="result-list">{survey.questions.map((q, index) => {
         const stat = stats[q.id] ?? {}; const count = q.type === 'text' ? stat.textCount ?? 0 : Object.values(stat.counts ?? {}).reduce((sum, n) => sum + n, 0)
+        const searchTerm = responseSearch.trim().toLocaleLowerCase()
+        const textResponses = q.type === 'text' ? responses.filter((response) => {
+          const answer = response.answers[q.id]
+          if (typeof answer !== 'string' || !answer.trim()) return false
+          return !searchTerm || `${answer} ${response.nickname ?? ''}`.toLocaleLowerCase().includes(searchTerm)
+        }).sort((a, b) => responseOrder === 'newest' ? b.submittedAt.localeCompare(a.submittedAt) : a.submittedAt.localeCompare(b.submittedAt)) : []
         return <article className="panel result-card" key={q.id}><div className="result-card-head"><div className="question-number">{String(index + 1).padStart(2, '0')}</div><div><h3>{q.title}</h3><span>{q.type === 'single' ? '單選題' : q.type === 'multiple' ? '複選題' : '文字回答'} · {count} 份回答</span></div></div>
-          {q.type === 'text' ? <div className="text-responses">{responses.filter((r) => typeof r.answers[q.id] === 'string' && (r.answers[q.id] as string).trim()).slice(0, 8).map((r, i) => <div className="text-response" key={`${r.submittedAt}-${i}`}><p>{r.answers[q.id] as string}</p><span>{r.nickname?.trim() || '匿名'} · {formatDate(r.submittedAt)}</span></div>)}{count > 8 && <div className="more-responses">目前顯示最新 8 則回答</div>}</div> : <div className="bar-list">{q.options.map((option) => { const value = stat.counts?.[option.id] ?? 0; const percent = (survey.responseCount ?? 0) ? Math.round(value / (survey.responseCount ?? 1) * 100) : 0; return <div className="bar-row" key={option.id}><div className="bar-label"><span>{option.text}</span><strong>{value}<small> 票 · {percent}%</small></strong></div><div className="bar-track"><span style={{ width: `${percent}%` }} /></div></div> })}</div>}
+          {q.type === 'text' ? <div className="text-responses"><div className="text-response-tools"><label className="response-search"><Search size={15} /><input value={responseSearch} onChange={(e) => setResponseSearch(e.target.value)} placeholder="搜尋回答或暱稱" aria-label="搜尋文字回答或暱稱" /></label><select value={responseOrder} onChange={(e) => setResponseOrder(e.target.value as 'newest' | 'oldest')} aria-label="文字回答排序"><option value="newest">最新優先</option><option value="oldest">最早優先</option></select></div>{textResponses.map((response) => <div className="text-response" key={response.id}><p>{response.answers[q.id] as string}</p><span>{response.nickname?.trim() || '匿名'} · {formatDate(response.submittedAt)}</span></div>)}{!textResponses.length && <div className="no-text-results">{searchTerm ? '沒有符合搜尋條件的回答。' : '目前還沒有文字回答。'}</div>}{hasMoreResponses && <button className="load-more-responses" onClick={loadMoreResponses} disabled={loadingMoreResponses}>{loadingMoreResponses ? '載入中…' : '載入較早的回答'}<ArrowRight size={14} /></button>}<div className="response-search-note">目前載入 {responses.length} 份回答{hasMoreResponses ? '；載入較早回答可擴大搜尋範圍。' : '，已包含全部回答。'}</div></div> : <ChoiceResults question={q} statistic={stat} responseCount={survey.responseCount ?? 0} />}
         </article>
       })}</div>}
     </section>

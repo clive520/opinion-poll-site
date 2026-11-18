@@ -176,8 +176,21 @@ async function manageSurvey(body, token) {
     ref.collection(responseCollection).orderBy('submittedAt', 'desc').limit(100).get(),
   ])
   const stats = Object.fromEntries(statsSnapshot.docs.map((doc) => [doc.id, doc.data()]))
-  const responses = responsesSnapshot.docs.map((doc) => doc.data())
-  return { survey: publicSurvey(survey), stats, responses }
+  const responses = responsesSnapshot.docs.map((doc) => ({ id: doc.id, ...doc.data() }))
+  const responseCursor = responsesSnapshot.docs.at(-1)?.id ?? null
+  return { survey: publicSurvey(survey), stats, responses, responseCursor, hasMoreResponses: responsesSnapshot.size === 100 }
+}
+
+async function moreResponses(body, token) {
+  const ref = surveyRef(body.id)
+  await requireManager(ref, token)
+  if (typeof body.cursor !== 'string' || !/^[a-zA-Z0-9_-]{1,100}$/.test(body.cursor)) fail(400, '回答分頁位置不正確。')
+  const cursorSnapshot = await ref.collection(responseCollection).doc(body.cursor).get()
+  if (!cursorSnapshot.exists) fail(400, '找不到回答分頁位置。')
+  const snapshot = await ref.collection(responseCollection).orderBy('submittedAt', 'desc').startAfter(cursorSnapshot).limit(100).get()
+  const responses = snapshot.docs.map((doc) => ({ id: doc.id, ...doc.data() }))
+  const responseCursor = snapshot.docs.at(-1)?.id ?? body.cursor
+  return { responses, responseCursor, hasMoreResponses: snapshot.size === 100 }
 }
 
 async function updateSurvey(body, token) {
@@ -238,6 +251,7 @@ exports.opinionPollApi = onRequest({ region: 'asia-east1', cors: true, maxInstan
     }
     if (action === 'submitResponse' && req.method === 'POST') return res.status(201).json(await submitResponse(body))
     if (action === 'manageSurvey' && req.method === 'GET') return res.json(await manageSurvey(body, req.get('x-manage-token')))
+    if (action === 'moreResponses' && req.method === 'GET') return res.json(await moreResponses(body, req.get('x-manage-token')))
     if (action === 'updateSurvey' && req.method === 'POST') return res.json(await updateSurvey(body, req.get('x-manage-token')))
     if (action === 'publicResults' && req.method === 'GET') return res.json(await publicResults(body))
     fail(404, '找不到這項操作。')
