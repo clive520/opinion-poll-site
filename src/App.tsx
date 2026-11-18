@@ -20,6 +20,28 @@ type Response = { id: string; nickname?: string; answers: Record<string, string 
 type Statistic = { counts?: Record<string, number>; textCount?: number }
 type Route = { page: 'home' | 'poll' | 'manage' | 'done' | 'results' | 'archive'; id?: string; token?: string }
 type ChartMode = 'bar' | 'pie' | 'table'
+type ReadingSize = 'small' | 'medium' | 'large'
+
+function useReadingSize() {
+  const [size, setSize] = useState<ReadingSize>(() => {
+    try {
+      const saved = window.localStorage.getItem('opinion-poll-reading-size')
+      if (saved === 'small' || saved === 'medium' || saved === 'large') return saved
+    } catch { /* Keep the default if browser storage is unavailable. */ }
+    return 'medium'
+  })
+  useEffect(() => {
+    try { window.localStorage.setItem('opinion-poll-reading-size', size) } catch { /* The control still works for this page. */ }
+  }, [size])
+  return [size, setSize] as const
+}
+
+function ReadingSizeControl({ size, onChange }: { size: ReadingSize; onChange: (size: ReadingSize) => void }) {
+  return <div className="reading-size-control" role="group" aria-label="調整文字大小">
+    <Type size={15} aria-hidden="true" /><span>字體大小</span>
+    {(['small', 'medium', 'large'] as const).map((value) => <button key={value} type="button" className={size === value ? 'active' : ''} aria-pressed={size === value} onClick={() => onChange(value)}>{value === 'small' ? '小' : value === 'medium' ? '中' : '大'}</button>)}
+  </div>
+}
 
 const API_URL = (import.meta.env.VITE_API_URL as string | undefined) ?? 'https://opinionpollapi-l4atah6fzq-de.a.run.app'
 const basePath = import.meta.env.BASE_URL
@@ -187,6 +209,7 @@ function Builder() {
 }
 
 function PollPage({ id }: { id: string }) {
+  const [readingSize, setReadingSize] = useReadingSize()
   const [survey, setSurvey] = useState<Survey | null>(null)
   const [answers, setAnswers] = useState<Record<string, string | string[]>>({})
   const [nickname, setNickname] = useState('')
@@ -216,7 +239,7 @@ function PollPage({ id }: { id: string }) {
   if (!survey) return null
   if (survey.status === 'closed') return <main className="main-wrap centered-state"><div className="state-icon"><Clock3 /></div><div className="eyebrow">SURVEY CLOSED</div><h1>這份調查已結束</h1><p>感謝你的關注，這份調查目前已停止接受回答。</p></main>
   if (survey.opensAt && Date.now() < new Date(survey.opensAt).getTime()) return <main className="main-wrap centered-state"><div className="state-icon"><Clock3 /></div><div className="eyebrow">COMING SOON</div><h1>調查尚未開放</h1><p>預計於 {formatDate(survey.opensAt)} 開始接受回答，請稍後再回來。</p></main>
-  return <main className="main-wrap poll-page"><div className="poll-progress"><span>CLASSROOM POLL</span><span><Users size={14} />匿名參與</span></div><div className="poll-card panel">
+  return <main className={`main-wrap poll-page reading-size-${readingSize}`}><div className="poll-progress"><span>CLASSROOM POLL</span><span><Users size={14} />匿名參與</span></div><div className="reading-size-row"><ReadingSizeControl size={readingSize} onChange={setReadingSize} /></div><div className="poll-card panel">
     <div className="poll-accent" /><div className="poll-content"><div className="poll-meta"><span className="open-tag"><i />進行中</span><span>{survey.questions.length} 題</span></div><h1>{survey.title}</h1>{survey.description && <p className="poll-description">{survey.description}</p>}
       <div className="nickname-field"><label htmlFor="nickname">填答暱稱 <span>選填</span></label><input id="nickname" className="text-input" value={nickname} onChange={(e) => setNickname(e.target.value.slice(0, 40))} placeholder="輸入暱稱，或留白匿名作答" maxLength={40} /></div>
       {survey.questions.map((q, index) => <section className="answer-question" key={q.id}><div className="answer-question-title"><span>{String(index + 1).padStart(2, '0')}</span><h2>{q.title}<b className={q.required ? '' : 'muted'}>{q.required ? '必填' : '選填'}</b></h2></div>
@@ -260,12 +283,13 @@ function ArchivePage() {
 }
 
 function PublicResultsPage({ id }: { id: string }) {
+  const [readingSize, setReadingSize] = useReadingSize()
   const [data, setData] = useState<{ survey: Survey; stats: Record<string, Statistic> } | null>(null)
   const [error, setError] = useState('')
   useEffect(() => { api<{ survey: Survey; stats: Record<string, Statistic> }>('publicResults', { id }, undefined, 'GET').then(setData).catch((e) => setError(e.message)) }, [id])
   if (error) return <main className="main-wrap centered-state"><div className="state-icon"><BarChart3 /></div><h1>目前無法查看結果</h1><p>{error}</p><button className="ghost-button" onClick={() => routeTo('')}>回首頁</button></main>
   if (!data) return <main className="main-wrap centered-state"><div className="spinner" /><p>正在整理調查結果…</p></main>
-  return <main className="main-wrap manage-page public-results-page"><div className="eyebrow"><BarChart3 size={14} /> PUBLIC RESULTS</div><div className="results-heading public-results-heading"><div><h1>{data.survey.title}</h1><p>目前共收到 {data.survey.responseCount ?? 0} 份回答</p></div><span className="result-count"><Users size={14} />公開統計</span></div><div className="result-list">{data.survey.questions.map((question, index) => {
+  return <main className={`main-wrap manage-page public-results-page reading-size-${readingSize}`}><div className="results-page-tools"><div className="eyebrow"><BarChart3 size={14} /> PUBLIC RESULTS</div><ReadingSizeControl size={readingSize} onChange={setReadingSize} /></div><div className="results-heading public-results-heading"><div><h1>{data.survey.title}</h1><p>目前共收到 {data.survey.responseCount ?? 0} 份回答</p></div><span className="result-count"><Users size={14} />公開統計</span></div><div className="result-list">{data.survey.questions.map((question, index) => {
     const stat = data.stats[question.id] ?? {}
     return <article className="panel result-card" key={question.id}><div className="result-card-head"><div className="question-number">{String(index + 1).padStart(2, '0')}</div><div><h3>{question.title}</h3><span>{question.type === 'single' ? '單選題' : question.type === 'multiple' ? '複選題' : '文字回答'}</span></div></div>{question.type === 'text' ? <p className="public-text-result">文字回答僅供調查建立者查看。</p> : <ChoiceResults question={question} statistic={stat} responseCount={data.survey.responseCount ?? 0} />}</article>
   })}</div></main>
@@ -308,6 +332,7 @@ function PieChartIcon() {
 }
 
 function ManagePage({ id, token }: { id: string; token: string }) {
+  const [readingSize, setReadingSize] = useReadingSize()
   const [survey, setSurvey] = useState<Survey | null>(null)
   const [stats, setStats] = useState<Record<string, Statistic>>({})
   const [responses, setResponses] = useState<Response[]>([])
@@ -358,14 +383,14 @@ function ManagePage({ id, token }: { id: string; token: string }) {
   }
   if (error && !survey) return <main className="main-wrap centered-state"><div className="state-icon error-state"><LockKeyhole /></div><h1>無法開啟管理頁</h1><p>{error}</p><button className="ghost-button" onClick={() => routeTo('')}>回首頁</button></main>
   if (!survey) return <main className="main-wrap centered-state"><div className="spinner" /><p>正在載入管理資料…</p></main>
-  return <main className="main-wrap manage-page">
+  return <main className={`main-wrap manage-page reading-size-${readingSize}`}>
     <div className="manage-title-row"><div><div className="eyebrow"><BarChart3 size={14} /> SURVEY DASHBOARD</div><h1 className="manage-survey-title">{survey.title}</h1><p>調查管理 · 查看回答、分享調查，或調整開放狀態。</p></div><div className="manage-title-actions"><button className="ghost-button" onClick={() => setEditing((value) => !value)}><Settings2 size={14} />編輯內容</button><button className={`status-button ${survey.status}`} onClick={changeStatus} disabled={saving}><span />{saving ? '更新中…' : survey.status === 'open' ? '進行中' : '已關閉'}<ChevronDown size={14} /></button></div></div>
     {editing && <section className="panel edit-survey-panel"><div className="edit-survey-head"><div><span className="section-kicker">EDIT SURVEY</span><h2>調查基本資料</h2></div><button className="icon-button" onClick={() => setEditing(false)} aria-label="關閉編輯"><X size={17} /></button></div><label className="field-label" htmlFor="edit-title">調查標題</label><input id="edit-title" className="text-input" value={editTitle} onChange={(e) => setEditTitle(e.target.value)} maxLength={100} /><label className="field-label spaced" htmlFor="edit-description">調查說明 <span className="optional">選填</span></label><textarea id="edit-description" className="text-input description-input" value={editDescription} onChange={(e) => setEditDescription(e.target.value)} rows={3} maxLength={500} /><div className="edit-actions"><span>回答進來後，題目與選項會鎖定以保留統計一致性。</span><button className="primary-button" onClick={saveDetails} disabled={saving || !editTitle.trim()}>{saving ? '儲存中…' : '儲存變更'}<Check size={15} /></button></div></section>}
     <section className="manage-share-grid"><div className="panel share-panel"><div className="share-panel-heading"><div><span className="section-kicker">SHARE YOUR POLL</span><h2>邀請大家參與</h2></div><span className="share-heading-icon"><QrCode size={19} /></span></div><p className="share-description">掃描 QR code 即可直接填答，也可以複製連結傳給大家。</p><div className="share-content"><div className="qr-frame">{qr && <img src={qr} alt="調查填答 QR code" />}</div><div className="share-actions"><button className="share-url" onClick={copyLink}><span><Link2 size={15} />{link}</span>{copied ? <Check size={16} /> : <Copy size={15} />}</button><button className="secondary-button" onClick={downloadQr}><Download size={15} />下載 QR code</button><a className="text-button" href={link} target="_blank" rel="noreferrer">開啟填答頁<ExternalLink size={14} /></a></div></div><div className="admin-link-note"><span><LockKeyhole size={14} />管理連結僅供建立者使用，請勿公開分享。</span><button onClick={copyAdminLink}>{adminCopied ? '已複製' : '複製管理連結'}<Copy size={13} /></button></div></div>
       <aside className="panel response-total"><span className="total-icon"><Users size={19} /></span><span className="total-label">累積回答</span><strong>{survey.responseCount ?? 0}</strong><span className="total-footnote">不限制提交次數</span><div className="total-decoration"><span /><span /><span /><span /><span /></div></aside>
     </section>
     {notice && <div className="inline-notice"><CheckCircle2 size={16} />{notice}</div>}
-    <section className="results-section"><div className="results-heading"><div><span className="section-kicker">RESPONSE INSIGHTS</span><h2>回答結果</h2></div><span className="result-count"><Users size={14} />{survey.responseCount ?? 0} 份回答</span></div>
+    <section className="results-section"><div className="results-heading"><div><span className="section-kicker">RESPONSE INSIGHTS</span><h2>回答結果</h2></div><div className="results-page-tools"><ReadingSizeControl size={readingSize} onChange={setReadingSize} /><span className="result-count"><Users size={14} />{survey.responseCount ?? 0} 份回答</span></div></div>
       {!survey.responseCount ? <div className="panel empty-results"><span className="empty-icon"><MessageCircle size={23} /></span><h3>等待第一份回答</h3><p>把上方連結或 QR code 分享出去，回答進來後會顯示在這裡。</p></div> : <div className="result-list">{survey.questions.map((q, index) => {
         const stat = stats[q.id] ?? {}; const count = q.type === 'text' ? stat.textCount ?? 0 : Object.values(stat.counts ?? {}).reduce((sum, n) => sum + n, 0)
         const searchTerm = responseSearch.trim().toLocaleLowerCase()
