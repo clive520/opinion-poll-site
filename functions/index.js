@@ -8,6 +8,7 @@ const db = admin.firestore()
 const surveyCollection = 'opinion_poll_surveys'
 const responseCollection = 'opinion_poll_responses'
 const statisticCollection = 'opinion_poll_statistics'
+const archiveCollection = 'opinion_poll_archive'
 const maxTextLength = 1000
 
 function fail(status, message) {
@@ -69,6 +70,23 @@ function publicSurvey(data) {
 
 function tokenHash(token) {
   return crypto.createHash('sha256').update(token).digest('hex')
+}
+
+async function syncArchive(survey) {
+  const archiveRef = db.collection(archiveCollection).doc(survey.id)
+  if (survey.status === 'closed') {
+    await archiveRef.set({
+      surveyId: survey.id,
+      title: survey.title,
+      description: survey.description,
+      questions: survey.questions,
+      responseCount: survey.responseCount ?? 0,
+      createdAt: survey.createdAt,
+      closedAt: survey.closedAt || survey.updatedAt || new Date().toISOString(),
+    })
+  } else {
+    await archiveRef.delete()
+  }
 }
 
 async function requireManager(ref, token) {
@@ -203,6 +221,8 @@ async function updateSurvey(body, token) {
   if ('status' in changes) {
     if (!['open', 'closed'].includes(changes.status)) fail(400, '調查狀態不正確。')
     patch.status = changes.status
+    if (changes.status === 'closed' && snapshot.data().status !== 'closed') patch.closedAt = new Date().toISOString()
+    if (changes.status === 'open') patch.closedAt = null
   }
   if ('resultsPublic' in changes) patch.resultsPublic = changes.resultsPublic === true
   if ('closesAt' in changes) patch.closesAt = isoDate(changes.closesAt)
@@ -225,7 +245,25 @@ async function updateSurvey(body, token) {
     await ref.update(patch)
   }
   const latest = await ref.get()
-  return { survey: publicSurvey(latest.data()) }
+  const latestSurvey = latest.data()
+  await syncArchive(latestSurvey)
+  return { survey: publicSurvey(latestSurvey) }
+}
+
+async function listArchivedSurveys(body) {
+  let query = db.collection(archiveCollection).orderBy('closedAt', 'desc')
+  if (body.cursor) {
+    if (typeof body.cursor !== 'string' || !/^[a-zA-Z0-9_-]{1,100}$/.test(body.cursor)) fail(400, '往期調查分頁位置不正確。')
+    const cursorSnapshot = await db.collection(archiveCollection).doc(body.cursor).get()
+    if (!cursorSnapshot.exists) fail(400, '找不到往期調查分頁位置。')
+    query = query.startAfter(cursorSnapshot)
+  }
+  const snapshot = await query.limit(50).get()
+  const surveys = snapshot.docs.map((doc) => {
+    const { questions, ...summary } = doc.data()
+    return { ...summary, questionCount: Array.isArray(questions) ? questions.length : 0 }
+  })
+  return { surveys, archiveCursor: snapshot.docs.at(-1)?.id ?? body.cursor ?? null, hasMore: snapshot.size === 50 }
 }
 
 async function publicResults(body) {
@@ -233,7 +271,7 @@ async function publicResults(body) {
   const snapshot = await ref.get()
   if (!snapshot.exists) fail(404, '找不到這份調查。')
   const survey = snapshot.data()
-  if (survey.resultsPublic !== true) fail(403, '這份調查未公開統計。')
+  if (survey.resultsPublic !== true && survey.status !== 'closed') fail(403, '這份調查尚未公開統計。')
   const statsSnapshot = await ref.collection(statisticCollection).get()
   return { survey: { id: survey.id, title: survey.title, questions: survey.questions, responseCount: survey.responseCount }, stats: Object.fromEntries(statsSnapshot.docs.map((doc) => [doc.id, doc.data()])) }
 }
@@ -252,6 +290,7 @@ exports.opinionPollApi = onRequest({ region: 'asia-east1', cors: true, maxInstan
     if (action === 'submitResponse' && req.method === 'POST') return res.status(201).json(await submitResponse(body))
     if (action === 'manageSurvey' && req.method === 'GET') return res.json(await manageSurvey(body, req.get('x-manage-token')))
     if (action === 'moreResponses' && req.method === 'GET') return res.json(await moreResponses(body, req.get('x-manage-token')))
+    if (action === 'listArchivedSurveys' && req.method === 'GET') return res.json(await listArchivedSurveys(body))
     if (action === 'updateSurvey' && req.method === 'POST') return res.json(await updateSurvey(body, req.get('x-manage-token')))
     if (action === 'publicResults' && req.method === 'GET') return res.json(await publicResults(body))
     fail(404, '找不到這項操作。')

@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from 'react'
 import QRCode from 'qrcode'
 import {
-  ArrowRight, BarChart3, Check, CheckCircle2, ChevronDown, CircleHelp,
+  Archive, ArrowRight, BarChart3, Check, CheckCircle2, ChevronDown, CircleHelp,
   Clock3, Copy, Download, ExternalLink, FileText, Link2, ListChecks,
   LockKeyhole, MessageCircle, Plus, QrCode, Radio, Search, Send, Settings2, ShieldCheck,
   Sparkles, Trash2, Type, Users, X,
@@ -18,7 +18,7 @@ type Survey = {
 }
 type Response = { id: string; nickname?: string; answers: Record<string, string | string[]>; submittedAt: string }
 type Statistic = { counts?: Record<string, number>; textCount?: number }
-type Route = { page: 'home' | 'poll' | 'manage' | 'done' | 'results'; id?: string; token?: string }
+type Route = { page: 'home' | 'poll' | 'manage' | 'done' | 'results' | 'archive'; id?: string; token?: string }
 type ChartMode = 'bar' | 'pie' | 'table'
 
 const API_URL = (import.meta.env.VITE_API_URL as string | undefined) ?? 'https://opinionpollapi-l4atah6fzq-de.a.run.app'
@@ -35,6 +35,7 @@ function readRoute(): Route {
   if (page === 'manage' && id) return { page: 'manage', id, token: params.get('key') ?? undefined }
   if (page === 'done') return { page: 'done', id }
   if (page === 'results' && id) return { page: 'results', id }
+  if (page === 'archive') return { page: 'archive' }
   return { page: 'home' }
 }
 
@@ -80,6 +81,7 @@ function App() {
     {route.page === 'manage' && route.id && <ManagePage id={route.id} token={route.token ?? ''} />}
     {route.page === 'done' && <DonePage id={route.id} />}
     {route.page === 'results' && route.id && <PublicResultsPage id={route.id} />}
+    {route.page === 'archive' && <ArchivePage />}
     <Footer />
   </div>
 }
@@ -88,7 +90,7 @@ function Header({ onHome }: { onHome: () => void }) {
   return <header className="topbar"><button className="brand" onClick={onHome} aria-label="回首頁">
     <span className="brand-mark"><Radio size={21} strokeWidth={2.4} /></span>
     <span>聚點<span className="brand-dot">.</span></span>
-  </button><div className="header-note"><span className="live-dot" />匿名參與 · 即時統計</div></header>
+  </button><nav className="header-actions"><button className="header-archive" onClick={() => routeTo('/archive')}><Archive size={15} />往期調查<ArrowRight size={13} /></button><div className="header-note"><span className="live-dot" />匿名參與 · 即時統計</div></nav></header>
 }
 
 function Footer() {
@@ -230,6 +232,31 @@ function DonePage({ id }: { id?: string }) {
   const [showResults, setShowResults] = useState(false)
   useEffect(() => { if (!id) return; api<{ resultsPublic: boolean }>('getSurvey', { id }, undefined, 'GET').then((r) => setShowResults(r.resultsPublic)).catch(() => undefined) }, [id])
   return <main className="main-wrap centered-state done-state"><div className="done-check"><Check size={34} /></div><div className="eyebrow">RESPONSE RECEIVED</div><h1>謝謝你分享想法！</h1><p>你的回答已經送出，讓這份調查更完整。</p>{showResults && id && <button className="text-button" onClick={() => routeTo(`/results/${id}`)}>查看調查結果<ArrowRight size={15} /></button>}<button className="ghost-button" onClick={() => routeTo('')}>建立一份自己的調查</button></main>
+}
+
+type ArchiveSummary = { surveyId: string; title: string; description?: string; questionCount: number; responseCount: number; closedAt?: string }
+
+function ArchivePage() {
+  const [surveys, setSurveys] = useState<ArchiveSummary[]>([])
+  const [loading, setLoading] = useState(true)
+  const [loadingMore, setLoadingMore] = useState(false)
+  const [archiveCursor, setArchiveCursor] = useState<string | null>(null)
+  const [hasMore, setHasMore] = useState(false)
+  const [error, setError] = useState('')
+  useEffect(() => { api<{ surveys: ArchiveSummary[]; archiveCursor: string | null; hasMore: boolean }>('listArchivedSurveys', undefined, undefined, 'GET').then((result) => { setSurveys(result.surveys); setArchiveCursor(result.archiveCursor); setHasMore(result.hasMore) }).catch((e) => setError(e.message)).finally(() => setLoading(false)) }, [])
+  async function loadMore() {
+    if (!archiveCursor || loadingMore) return
+    setLoadingMore(true)
+    try { const result = await api<{ surveys: ArchiveSummary[]; archiveCursor: string | null; hasMore: boolean }>('listArchivedSurveys', { cursor: archiveCursor }, undefined, 'GET'); setSurveys((current) => [...current, ...result.surveys]); setArchiveCursor(result.archiveCursor); setHasMore(result.hasMore) }
+    catch (e) { setError(e instanceof Error ? e.message : '載入往期調查失敗。') }
+    finally { setLoadingMore(false) }
+  }
+
+  return <main className="main-wrap archive-page">
+    <div className="archive-heading"><div><div className="eyebrow"><Archive size={14} /> PAST SURVEYS</div><h1>往期調查</h1><p>瀏覽已結束調查的題目與統計結果，不需登入。</p></div><button className="ghost-button archive-create" onClick={() => routeTo('')}>建立新調查<ArrowRight size={14} /></button></div>
+    {loading ? <div className="archive-loading"><div className="spinner" /><span>正在載入往期調查…</span></div> : error && !surveys.length ? <div className="panel archive-empty"><span className="empty-icon"><CircleHelp size={22} /></span><h2>暫時無法載入</h2><p>{error}</p></div> : !surveys.length ? <div className="panel archive-empty"><span className="empty-icon"><Archive size={22} /></span><h2>目前還沒有往期調查</h2><p>調查關閉並完成統計後，會出現在這裡供大家瀏覽。</p><button className="text-button" onClick={() => routeTo('')}>建立第一份調查<ArrowRight size={14} /></button></div> : <><div className="archive-grid">{surveys.map((survey) => <article className="panel archive-card" key={survey.surveyId}><div className="archive-card-top"><span className="closed-tag"><CheckCircle2 size={12} />已結束</span><span className="archive-date"><Clock3 size={12} />{survey.closedAt ? formatDate(survey.closedAt) : '已完成'}</span></div><h2>{survey.title}</h2>{survey.description && <p>{survey.description}</p>}<div className="archive-meta"><span><ListChecks size={14} />{survey.questionCount} 題</span><span><Users size={14} />{survey.responseCount} 份回答</span></div><button className="archive-view-button" onClick={() => routeTo(`/results/${survey.surveyId}`)}>查看統計結果<ArrowRight size={15} /></button></article>)}</div>{hasMore && <div className="archive-load-more"><button className="secondary-button" onClick={loadMore} disabled={loadingMore}>{loadingMore ? '載入中…' : '載入更多往期調查'}<ArrowRight size={14} /></button></div>}{error && <div className="inline-error"><CircleHelp size={14} />{error}</div>}</>}
+    <p className="archive-privacy"><ShieldCheck size={14} />往期頁面只公開題目與彙整統計，不會顯示填答者暱稱或文字回答。</p>
+  </main>
 }
 
 function PublicResultsPage({ id }: { id: string }) {
